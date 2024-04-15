@@ -37,3 +37,4 @@ entry("sbrk");
 entry("sleep");
 entry("uptime");
 entry("trace"); # lab2:1
+entry("sysinfo"); # lab2:2

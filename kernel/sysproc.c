@@ -96,10 +96,28 @@ sys_uptime(void)
   return xticks;
 }
 
+//lab2:1
 uint64 sys_trace(void)
 {
     int mask;
     if(argint(0, &mask) < 0) return -1;
     myproc()->mask = mask;
+    return 0;
+}
+
+#include "sysinfo.h"
+//lab2:2
+uint64 sys_sysinfo(void)
+{
+    uint64 info_addr;
+    struct sysinfo info;
+    if (argaddr(0, &info_addr) < 0) {
+        return -1;
+    }
+    info.freemem = getfreemem();
+    info.nproc = getnproc();
+    //将数据从内核空间拷贝到用户空间
+    if(copyout(myproc()->pagetable, info_addr, (char*) &info, sizeof(info)) < 0)
+        return -1;
     return 0;
 }

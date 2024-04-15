@@ -130,6 +130,18 @@ found:
   return p;
 }
 
+//lab2:2    获取进程数
+uint64 getnproc(void)
+{
+    struct proc *p;
+    uint64 cnt = 0;
+    for(p = proc; p < &proc[NPROC]; p++) {
+        if(p->state != UNUSED)
+            cnt++;
+    }
+    return cnt;
+}
+
 // free a proc structure and the data hanging from it,
 // including user pages.
 // p->lock must be held.

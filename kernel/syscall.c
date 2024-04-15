@@ -105,6 +105,7 @@ extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
 extern uint64 sys_trace(void);  //lab2:1
+extern uint64 sys_sysinfo(void);  //lab2:2
 
 static uint64 (*syscalls[])(void) = {       //存放函数指针的数组，每一个函数指针指向无输入参数，返回值为uint64类型的函数
 [SYS_fork]    sys_fork,
@@ -128,7 +129,8 @@ static uint64 (*syscalls[])(void) = {       //存放函数指针的数组，每�
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
-[SYS_trace]   sys_trace,    //
+[SYS_trace]   sys_trace,    //lab2:1
+[SYS_sysinfo]   sys_sysinfo,    //lab2:2
 };
 
 static char* syscalls_name[] =
@@ -155,7 +157,8 @@ static char* syscalls_name[] =
     "link",
     "mkdir",
     "close",
-    "trace"     //lab2:1
+    "trace",     //lab2:1
+    "sysinfo"   //lab2:2
 };
 
 void
