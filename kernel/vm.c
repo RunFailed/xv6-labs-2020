@@ -154,11 +154,11 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
   for(;;){
-    if((pte = walk(pagetable, a, 1)) == 0)
+    if((pte = walk(pagetable, a, 1)) == 0)  //根据虚拟地址找到第三级PTE
       return -1;
-    if(*pte & PTE_V)
+    if(*pte & PTE_V)    //如果该PTE已经被映射过，则异常返回“重新映射”
       panic("remap");
-    *pte = PA2PTE(pa) | perm | PTE_V;
+    *pte = PA2PTE(pa) | perm | PTE_V;   //把物理地址转换为PTE
     if(a == last)
       break;
     a += PGSIZE;

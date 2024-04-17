@@ -55,7 +55,7 @@ kfree(void *pa)
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
-
+    //把刚释放的页面插入到freelist的头部
   acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
@@ -69,7 +69,7 @@ void *
 kalloc(void)
 {
   struct run *r;
-
+    //每次分配内存时，从freelist头部取空闲内存
   acquire(&kmem.lock);
   r = kmem.freelist;
   if(r)
