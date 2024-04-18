@@ -289,6 +289,74 @@ freewalk(pagetable_t pagetable)
   kfree((void*)pagetable);
 }
 
+/*
+//lab3:1    循环实现
+void vmprint(pagetable_t pagetable)
+{
+    if(pagetable == 0) return;
+    printf("page table %p\n", pagetable);
+    pagetable_t father = pagetable;     //一级页表首地址
+    //遍历一级页表
+    for(int i = 0; i < 512; i++)
+    {
+        pte_t pte1 = father[i];     //一级页表项
+        if(pte1 & PTE_V)
+        {
+            printf("..%d: pte %p pa %p\n", i, pte1, PTE2PA(pte1));  //打印一级页表项
+            // this PTE points to a lower-level page table.
+            pagetable_t child = (pagetable_t)PTE2PA(pte1);    //二级页表首地址
+            //遍历二级页表
+            for(int j = 0; j < 512; j++)
+            {
+                pte_t pte2 = child[j];      //二级页表项
+                if(pte2 & PTE_V)
+                {
+                    printf(".. ..%d: pte %p pa %p\n", j, pte2, PTE2PA(pte2));   //打印二级页表项
+                    pagetable_t childchild = (pagetable_t)PTE2PA(pte2);  //三级页表首地址
+                    for(int k = 0; k < 512; k++)
+                    {
+                        pte_t pte3 = childchild[k];      //三级页表项
+                        if(pte3 & PTE_V)
+                        {
+                            printf(".. .. ..%d: pte %p pa %p\n", k, pte3, PTE2PA(pte3));    //打印三级页表项
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+*/
+
+//lab3:1    递归实现
+void vmprinthelper(pagetable_t pagetable, int level)
+{
+    for(int i = 0; i < 512; i++)
+    {
+        pte_t pte = pagetable[i];
+        if(pte & PTE_V)
+        {
+            switch (level)
+            {
+                case 3:
+                    printf(".. ");
+                case 2:
+                    printf(".. ");
+                case 1:
+                    printf("..%d: pte %p pa %p\n", i, pte, PTE2PA(pte));
+            }
+            if((pte & (PTE_R|PTE_W|PTE_X)) == 0)
+                vmprinthelper((pagetable_t)PTE2PA(pte), level + 1);
+        }
+    }
+}
+
+void vmprint(pagetable_t pagetable)
+{
+    if(pagetable == 0) return;
+    printf("page table %p\n", pagetable);
+    vmprinthelper(pagetable, 1);
+}
 // Free user memory pages,
 // then free page-table pages.
 void
