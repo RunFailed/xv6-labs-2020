@@ -47,6 +47,45 @@ kvminit()
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
 
+//为一个新进程生成一个内核页表的合理方案是实现一个修改版的kvminit(proc_kvminit)，这个版本中应当创造一个新的页表而不是修改kernel_pagetable。
+//lab3:2 A kernel page table per process
+void proc_kvmmap(pagetable_t proc_kpagetable, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+    if(mappages(proc_kpagetable, va, sz, pa, perm) != 0)
+        panic("proc_kvmmap");
+}
+
+//lab3:2 A kernel page table per process
+pagetable_t proc_kvminit()
+{
+    pagetable_t proc_kpagetable = uvmcreate();
+    if(proc_kpagetable == 0) return 0;
+
+    // uart registers
+    proc_kvmmap(proc_kpagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+
+    // virtio mmio disk interface
+    proc_kvmmap(proc_kpagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+    // CLINT
+    proc_kvmmap(proc_kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+
+    // PLIC
+    proc_kvmmap(proc_kpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+    // map kernel text executable and read-only.
+    proc_kvmmap(proc_kpagetable, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+
+    // map kernel data and the physical RAM we'll make use of.
+    proc_kvmmap(proc_kpagetable, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+
+    // map the trampoline for trap entry/exit to
+    // the highest virtual address in the kernel.
+    proc_kvmmap(proc_kpagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+    return proc_kpagetable;
+}
+
+
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
 void
@@ -54,6 +93,14 @@ kvminithart()
 {
   w_satp(MAKE_SATP(kernel_pagetable));
   sfence_vma();
+}
+
+//lab3:2 A kernel page table per process
+//加载进程的内核页表到核心的satp寄存器
+void proc_kvminithart(pagetable_t proc_kpagetable)
+{
+    w_satp(MAKE_SATP(proc_kpagetable));
+    sfence_vma();
 }
 
 // Return the address of the PTE in page table pagetable
@@ -125,14 +172,19 @@ kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 // a physical address. only needed for
 // addresses on the stack.
 // assumes va is page aligned.
+#include "spinlock.h"
+#include "proc.h"   //myproc()返回一个proc.h中声明的strut proc类型的指针
 uint64
 kvmpa(uint64 va)
 {
   uint64 off = va % PGSIZE;
   pte_t *pte;
   uint64 pa;
-  
-  pte = walk(kernel_pagetable, va, 0);
+
+  //pte = walk(kernel_pagetable, va, 0);
+  //lab3:2 A kernel page table per process
+  //在当前进程的内核页表中查询虚拟地址va对应的pte
+  pte = walk(myproc()->kpagetable, va, 0);
   if(pte == 0)
     panic("kvmpa");
   if((*pte & PTE_V) == 0)

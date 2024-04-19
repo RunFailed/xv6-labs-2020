@@ -108,6 +108,7 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+void            proc_kvmfree(pagetable_t);  //lab3:2 A kernel page table per process,取消内核页表中虚拟地址与物理地址的映射
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -160,6 +161,8 @@ int             uartgetc(void);
 // vm.c
 void            kvminit(void);
 void            kvminithart(void);
+//lab3:2 A kernel page table per process, 加载进程的内核页表到核心的satp寄存器
+void            proc_kvminithart(pagetable_t);
 uint64          kvmpa(uint64);
 void            kvmmap(uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
@@ -167,6 +170,8 @@ pagetable_t     uvmcreate(void);
 void            uvminit(pagetable_t, uchar *, uint);
 uint64          uvmalloc(pagetable_t, uint64, uint64);
 uint64          uvmdealloc(pagetable_t, uint64, uint64);
+void            freewalk(pagetable_t);
+pte_t*          walk(pagetable_t, uint64, int);
 #ifdef SOL_COW
 #else
 int             uvmcopy(pagetable_t, pagetable_t, uint64);
@@ -179,6 +184,8 @@ int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 void            vmprint(pagetable_t);   //lab3:1
+void            proc_kvmmap(pagetable_t, uint64, uint64, uint64, int);  //lab3:2 A kernel page table per process
+pagetable_t     proc_kvminit(void); //lab3:2 A kernel page table per process
 
 // plic.c
 void            plicinit(void);

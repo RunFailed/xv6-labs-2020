@@ -31,15 +31,7 @@ procinit(void)
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
 
-      // Allocate a page for the process's kernel stack.
-      // Map it high in memory, followed by an invalid
-      // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+
   }
   kvminithart();
 }
@@ -89,6 +81,9 @@ allocpid() {
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
+//每次调用fork时都会调用allocproc函数，分配内核页表和内核栈并进行物理内存和虚拟内存之间的映射
+//其中内核栈均分配了物理内存，所以freeproc时需取消映射并释放对应的物理内存
+//而内核页表只有一级页表分配了物理内存，所以需取消各级页表的映射，并释放一级页表的物理内存
 static struct proc*
 allocproc(void)
 {
@@ -121,6 +116,30 @@ found:
     return 0;
   }
 
+  //lab3:2 A kernel page table per process
+  //在allocproc中调用这个proc_kvminit函数
+  p->kpagetable = proc_kvminit();
+  if(p->kpagetable == 0){
+      freeproc(p);
+      release(&p->lock);
+      return 0;
+  }
+
+  // Allocate a page for the process's kernel stack.
+  // Map it high in memory, followed by an invalid
+  // guard page.
+  /*
+   * 确保每一个进程的内核页表都关于该进程的内核栈有一个映射。
+   * 在未修改的XV6中，所有的内核栈都在procinit中设置。
+   * 你将要把这个功能部分或全部的迁移到allocproc中
+   */
+  char *pa = kalloc();
+  if(pa == 0)
+      panic("kalloc");
+  uint64 va = KSTACK((int) (p - proc));
+  proc_kvmmap(p->kpagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -129,6 +148,29 @@ found:
 
   return p;
 }
+
+/*
+ * lab3:2 A kernel page table per process
+ * 你需要一种方法来释放页表，而不必释放叶子物理内存页面
+ * */
+void proc_kvmfree(pagetable_t kpagetable)
+{
+    for(int i = 0; i < 512; i++)
+    {
+        pte_t pte = kpagetable[i];
+        if(pte & PTE_V)
+        {
+            kpagetable[i] = 0;  //对有效的PTE均清零
+            if((pte & (PTE_R | PTE_W | PTE_X)) == 0)
+            {
+                uint64 child = PTE2PA(pte);
+                proc_kvmfree((pagetable_t) child);
+            }
+        }
+    }
+    kfree((void*)kpagetable);
+}
+
 
 // free a proc structure and the data hanging from it,
 // including user pages.
@@ -150,6 +192,11 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  //lab3:2 A kernel page table per process
+  //在freeproc中释放一个进程的内核页表
+  if(p->kstack) uvmunmap(p->kpagetable, p->kstack, 1, 1);
+  p->kstack = 0;
+  if(p->kpagetable) proc_kvmfree(p->kpagetable);
 }
 
 // Create a user page table for a given process,
@@ -473,8 +520,17 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        /*
+         * lab3:2 A kernel page table per process
+         * 修改scheduler()来加载进程的内核页表到核心的satp寄存器(参阅kvminithart来获取启发)。
+         * 不要忘记在调用完w_satp()后调用sfence_vma()
+         * */
+        proc_kvminithart(p->kpagetable);
         swtch(&c->context, &p->context);
-
+        //切换回内核页表
+        //lab3:2 A kernel page table per process
+        //没有进程运行时scheduler()应当使用kernel_pagetable
+        kvminithart();
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;

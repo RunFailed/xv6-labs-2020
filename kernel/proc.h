@@ -103,4 +103,6 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  //在struct proc中为进程的内核页表增加一个字段
+  pagetable_t kpagetable;       // lab3:2 A kernel page table per process   每个进程的内核页表的物理地址
 };
