@@ -186,6 +186,14 @@ int             copyinstr(pagetable_t, char *, uint64, uint64);
 void            vmprint(pagetable_t);   //lab3:1
 void            proc_kvmmap(pagetable_t, uint64, uint64, uint64, int);  //lab3:2 A kernel page table per process
 pagetable_t     proc_kvminit(void); //lab3:2 A kernel page table per process
+//lab3:3 Simplify copyin/copyinstr
+//把进程用户页表中虚拟地址从begin--->end的映射关系拷贝到该进程的内核页表中
+int             u2kvmcopy(pagetable_t, pagetable_t, uint64, uint64);
+//void             u2kvmcopy(pagetable_t, pagetable_t, uint64, uint64);
+
+//vmcopyin.c    lab3:3 Simplify copyin/copyinstr
+int             copyin_new(pagetable_t, char*, uint64, uint64);
+int             copyinstr_new(pagetable_t, char*, uint64, uint64);
 
 // plic.c
 void            plicinit(void);

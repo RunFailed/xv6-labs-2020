@@ -74,6 +74,8 @@ exec(char *path, char **argv)
   uvmclear(pagetable, sz-2*PGSIZE);
   sp = sz;
   stackbase = sp - PGSIZE;
+  //把用户页表复制到该进程的内核页表
+    //u2kvmcopy(pagetable, p->kpagetable, 0, sz);
 
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
@@ -115,6 +117,16 @@ exec(char *path, char **argv)
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
+
+    //lab3:3 Simplify copyin/copyinstr
+    //取消该进程的kpagetable中旧用户虚拟地址空间和物理地址的映射关系，但不释放页表物理内存
+    //转而映射到新的用户空间的物理地址
+    uvmunmap(p->kpagetable, 0, (PGROUNDUP(oldsz)) / PGSIZE, 0);
+    if(u2kvmcopy(p->pagetable, p->kpagetable, 0, p->sz) < 0)
+    {
+        goto bad;
+    }
+
 
   if(p->pid==1) vmprint(p->pagetable);  //lab3:1
 

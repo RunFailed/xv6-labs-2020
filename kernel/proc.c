@@ -134,9 +134,9 @@ found:
    * 你将要把这个功能部分或全部的迁移到allocproc中
    */
   char *pa = kalloc();
-  if(pa == 0)
-      panic("kalloc");
+  if(pa == 0) panic("kalloc");
   uint64 va = KSTACK((int) (p - proc));
+    //uint64 va = KSTACK(0);
   proc_kvmmap(p->kpagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
   p->kstack = va;
 
@@ -158,7 +158,7 @@ void proc_kvmfree(pagetable_t kpagetable)
     for(int i = 0; i < 512; i++)
     {
         pte_t pte = kpagetable[i];
-        if(pte & PTE_V)
+        if((pte & PTE_V))
         {
             kpagetable[i] = 0;  //对有效的PTE均清零
             if((pte & (PTE_R | PTE_W | PTE_X)) == 0)
@@ -191,12 +191,13 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
-  p->state = UNUSED;
   //lab3:2 A kernel page table per process
   //在freeproc中释放一个进程的内核页表
   if(p->kstack) uvmunmap(p->kpagetable, p->kstack, 1, 1);
   p->kstack = 0;
   if(p->kpagetable) proc_kvmfree(p->kpagetable);
+  p->kpagetable = 0;
+  p->state = UNUSED;
 }
 
 // Create a user page table for a given process,
@@ -267,6 +268,8 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  //lab3:3 Simplify copyin/copyinstr
+    u2kvmcopy(p->pagetable, p->kpagetable, 0, p->sz);
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -290,11 +293,20 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+      if(sz + n > PLIC) return -1;
+      //if(PGROUNDUP(sz + n) >= PLIC) return -1;
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    if(u2kvmcopy(p->pagetable, p->kpagetable, p->sz, sz) < 0) return -1;
+      //u2kvmcopy(p->pagetable, p->kpagetable, sz - n, sz);
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
+        //lab3:3 Simplify copyin/copyinstr
+        //取消该进程kpagetable的部分映射关系，但不释放物理内存
+      if(PGROUNDUP(sz) < PGROUNDUP(p->sz)){
+          uvmunmap(p->kpagetable, PGROUNDUP(sz), (PGROUNDUP(p->sz) - PGROUNDUP(sz)) / PGSIZE, 0);
+      }
   }
   p->sz = sz;
   return 0;
@@ -320,7 +332,16 @@ fork(void)
     release(&np->lock);
     return -1;
   }
-  np->sz = p->sz;
+    np->sz = p->sz;
+
+  //lab3:3 Simplify copyin/copyinstr
+    if(u2kvmcopy(np->pagetable, np->kpagetable, 0, np->sz) < 0){
+        freeproc(np);
+        release(&np->lock);
+        return -1;
+    }
+
+    //u2kvmcopy(np->pagetable, np->kpagetable, 0, np->sz);
 
   np->parent = p;
 
@@ -525,20 +546,29 @@ scheduler(void)
          * 修改scheduler()来加载进程的内核页表到核心的satp寄存器(参阅kvminithart来获取启发)。
          * 不要忘记在调用完w_satp()后调用sfence_vma()
          * */
-        proc_kvminithart(p->kpagetable);
+        //proc_kvminithart(p->kpagetable);
+          w_satp(MAKE_SATP(p->kpagetable));
+          sfence_vma();
         swtch(&c->context, &p->context);
-        //切换回内核页表
-        //lab3:2 A kernel page table per process
-        //没有进程运行时scheduler()应当使用kernel_pagetable
-        kvminithart();
         // Process is done running for now.
         // It should have changed its p->state before coming back.
+//          切换回内核页表
+//          lab3:2 A kernel page table per process
+//          没有进程运行时scheduler()应当使用kernel_pagetable
+          kvminithart();
         c->proc = 0;
 
         found = 1;
       }
       release(&p->lock);
     }
+//    if(found == 0)
+//    {
+//        //切换回内核页表
+//        //lab3:2 A kernel page table per process
+//        //没有进程运行时scheduler()应当使用kernel_pagetable
+//        kvminithart();
+//    }
 #if !defined (LAB_FS)
     if(found == 0) {
       intr_on();

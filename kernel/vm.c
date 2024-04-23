@@ -68,7 +68,7 @@ pagetable_t proc_kvminit()
     proc_kvmmap(proc_kpagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
 
     // CLINT
-    proc_kvmmap(proc_kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+    //proc_kvmmap(proc_kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
 
     // PLIC
     proc_kvmmap(proc_kpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
@@ -386,6 +386,7 @@ void vmprinthelper(pagetable_t pagetable, int level)
     for(int i = 0; i < 512; i++)
     {
         pte_t pte = pagetable[i];
+        uint64 child = PTE2PA(pte);
         if(pte & PTE_V)
         {
             switch (level)
@@ -395,17 +396,17 @@ void vmprinthelper(pagetable_t pagetable, int level)
                 case 2:
                     printf(".. ");
                 case 1:
-                    printf("..%d: pte %p pa %p\n", i, pte, PTE2PA(pte));
+                    printf("..%d: pte %p pa %p\n", i, pte, child);
             }
             if((pte & (PTE_R|PTE_W|PTE_X)) == 0)
-                vmprinthelper((pagetable_t)PTE2PA(pte), level + 1);
+                vmprinthelper((pagetable_t) child, level + 1);
         }
     }
 }
 
 void vmprint(pagetable_t pagetable)
 {
-    if(pagetable == 0) return;
+    //if(pagetable == 0) return;
     printf("page table %p\n", pagetable);
     vmprinthelper(pagetable, 1);
 }
@@ -455,6 +456,53 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   return -1;
 }
 
+
+//lab3:3 Simplify copyin/copyinstr
+//把进程用户页表中虚拟地址从begin--->end的映射关系拷贝到该进程的内核页表中
+int u2kvmcopy(pagetable_t upagetable, pagetable_t kpagetable, uint64 begin, uint64 end)
+{
+    pte_t *pte;
+    uint64 pa, i;
+    uint flags;
+    begin = PGROUNDUP(begin);
+    for(i = begin; i < end; i += PGSIZE)
+    {
+        if((pte = walk(upagetable, i, 0)) == 0)
+            panic("u2kvmcopy: pte should exist");
+        if((*pte & PTE_V) == 0)
+            panic("u2kvmcopy: page not present");
+        pa = PTE2PA(*pte);
+        flags = (PTE_FLAGS(*pte)) & (~PTE_U);
+        if(mappages(kpagetable, i, PGSIZE, pa, flags) != 0){
+            goto err;
+        }
+    }
+    return 0;
+err:
+    uvmunmap(kpagetable, begin, (i - begin) / PGSIZE, 0);
+    return -1;
+}
+
+/*
+//lab3:3 Simplify copyin/copyinstr
+//把进程用户页表中虚拟地址从begin--->end的映射关系拷贝到该进程的内核页表中
+void u2kvmcopy(pagetable_t upagetable, pagetable_t kpagetable, uint64 oldsz, uint64 newsz)
+{
+    pte_t *pte_from, *pte_to;
+    oldsz = PGROUNDUP(oldsz);
+    for(uint64 i = oldsz; i < newsz; i += PGSIZE)
+    {
+        if((pte_from = walk(upagetable, i, 0)) == 0)
+            panic("u2kvmcopy: pte should exist");
+        if((pte_to = walk(kpagetable, i, 1)) == 0)
+            panic("u2kvmcopy: pte walk failed");
+        uint64  pa = PTE2PA(*pte_from);
+        uint flags = (PTE_FLAGS(*pte_from)) & (~PTE_U);
+        *pte_to = PA2PTE(pa) | flags;
+    }
+}
+*/
+
 // mark a PTE invalid for user access.
 // used by exec for the user stack guard page.
 void
@@ -499,7 +547,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
-  uint64 n, va0, pa0;
+  /*uint64 n, va0, pa0;
 
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
@@ -515,7 +563,9 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     dst += n;
     srcva = va0 + PGSIZE;
   }
-  return 0;
+  return 0;*/
+    // lab3:3 Simplify copyin/copyinstr
+  return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -525,7 +575,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
-  uint64 n, va0, pa0;
+  /*uint64 n, va0, pa0;
   int got_null = 0;
 
   while(got_null == 0 && max > 0){
@@ -558,5 +608,7 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return 0;
   } else {
     return -1;
-  }
+  }*/
+  // lab3:3 Simplify copyin/copyinstr
+  return copyinstr_new(pagetable, dst, srcva, max);
 }
