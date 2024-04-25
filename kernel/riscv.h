@@ -319,6 +319,18 @@ sfence_vma()
   asm volatile("sfence.vma zero, zero");
 }
 
+// 读取寄存器s0中的当前函数调用的栈帧帧指针，
+// 函数返回地址位于栈帧帧指针偏移-8处
+// 上一个函数调用的栈帧帧指针位于当前栈帧帧指针偏移-16处
+static inline uint64
+r_fp()
+{
+    uint64 x;
+    asm volatile("mv %0, s0" : "=r" (x) );
+    return x;
+}
+
+
 
 #define PGSIZE 4096 // bytes per page
 #define PGSHIFT 12  // bits of offset within a page

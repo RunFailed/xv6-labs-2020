@@ -70,6 +70,7 @@ sys_sleep(void)
     sleep(&ticks, &tickslock);
   }
   release(&tickslock);
+    backtrace();  //Lab4:2 Backtrace
   return 0;
 }
 
