@@ -103,4 +103,8 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  int alarmInterval;         //Lab4:3 test0
+  uint64 alarmHandler;       //Lab4:3 test0
+  int alarmTicks;                //Lab4:3 test0 记录从调用sigalarm到现在已经历多少次tick
+  struct trapframe* trapframe_copy;  //Lab4:3 test1/2 执行alarmHandler之前，先备份进入定时中断时用户寄存器的值
 };

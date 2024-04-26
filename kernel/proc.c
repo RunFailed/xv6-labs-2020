@@ -127,6 +127,12 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  //Lab4:3 test0 1/2 参数初始化
+  p->alarmInterval = 0;
+  p->alarmTicks = 0;
+  p->alarmHandler = 0;
+  p->trapframe_copy = 0;
+
   return p;
 }
 

@@ -76,6 +76,20 @@ usertrap(void)
   if(p->killed)
     exit(-1);
 
+  //Lab4:3 test0 1/2 操纵进程的报警滴答
+  if(which_dev == 2 && p->alarmInterval > 0)
+  {
+    p->alarmTicks++;
+    if(p->alarmTicks == p->alarmInterval)
+    {
+        //p->alarmTicks = 0;    //移至sys_sigreturn中重置
+        //备份进入定时中断时用户寄存器的值
+        p->trapframe_copy = (struct trapframe*)((uint64)(p->trapframe) + 2048);
+        memmove(p->trapframe_copy, p->trapframe, sizeof(struct trapframe));
+        p->trapframe->epc = p->alarmHandler;
+    }
+  }
+
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
