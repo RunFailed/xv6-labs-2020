@@ -43,12 +43,20 @@ sys_sbrk(void)
 {
   int addr;
   int n;
-
+    struct proc *p = myproc();
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
+  addr = p->sz;
+    //Lab5:1 Eliminate allocation from sbrk()
+    //if(growproc(n) < 0)
+    //return -1;
+  if(n >= 0 && addr + n >= addr)    //防止int + int 溢出
+      p->sz += n;
+  else if(n < 0 && addr + n >= PGROUNDUP(p->trapframe->sp))
+      //Lab5:3 Lazytests and Usertests 处理sbrk参数位负的情况
+      p->sz = uvmdealloc(p->pagetable, addr, addr + n);
+  else
+      return -1;
   return addr;
 }
 

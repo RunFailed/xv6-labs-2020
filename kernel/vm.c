@@ -91,6 +91,12 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
 // Can only be used to look up user pages.
+//处理这种情形：进程从sbrk()向系统调用（如read或write）传递有效地址，但尚未分配该地址的内存。
+//read、write或调用copyin、copyout，而copyin、copyout又调用walkaddr，
+//所以在walkaddr中可能发生va有效，但尚未分配的情况，此时以在内核中，因此不会引发page fault，
+//所以不会走到usertrap中的page fault处理程序，因此直接在此进行处理
+#include "spinlock.h"
+#include "proc.h"   //Lab5:3
 uint64
 walkaddr(pagetable_t pagetable, uint64 va)
 {
@@ -101,10 +107,31 @@ walkaddr(pagetable_t pagetable, uint64 va)
     return 0;
 
   pte = walk(pagetable, va, 0);
-  if(pte == 0)
-    return 0;
-  if((*pte & PTE_V) == 0)
-    return 0;
+  //Lab5:3
+//  if(pte == 0)
+//    return 0;
+//  if((*pte & PTE_V) == 0)
+//    return 0;
+    if(pte == 0 || (*pte & PTE_V) == 0)
+    {
+        struct proc* p = myproc();
+        if(va >= PGROUNDUP(p->trapframe->sp) && va < p->sz)
+        {
+            char *pa;
+            if((pa = kalloc()) == 0) return 0;
+            memset(pa, 0, PGSIZE);
+            if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE,
+                        (uint64)pa, PTE_U | PTE_X | PTE_W | PTE_R) != 0)
+            {
+                kfree(pa);
+                return 0;
+            }
+        }
+        else
+        {
+            return 0;
+        }
+    }
   if((*pte & PTE_U) == 0)
     return 0;
   pa = PTE2PA(*pte);
@@ -181,9 +208,11 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+        continue;   //Lab5:3    可能sbrk分配了很大一块内存（超过了512*4096Byte），但没有使用，导致二级页表甚至一级页表项不存在
+      //panic("uvmunmap: walk");
+    if((*pte & PTE_V) == 0) //Lab5:2 Lazy allocation
+        continue;
+      //panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -315,9 +344,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+        continue;   //Lab5:3    在fork()中正确处理父到子内存拷贝
+      //panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+        continue;       //Lab5:3    在fork()中正确处理父到子内存拷贝
+      //panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
