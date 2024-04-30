@@ -63,6 +63,9 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+uint8           incrRefcnt(uint64 pa);  //递增指定物理页面的引用计数
+uint8           decrRefcnt(uint64 pa);  //递减指定物理页面的引用计数
+uint8           getRefcnt(uint64 pa);  //获取指定物理页面的引用计数
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -171,6 +174,8 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+//Lab6 COW必要时为COW页面分配新页面
+uint64          walkcowaddr(pagetable_t pagetable, uint64 va);
 
 // plic.c
 void            plicinit(void);
