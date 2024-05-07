@@ -165,6 +165,37 @@ bad:
   return -1;
 }
 
+//Lab9:2    Symbolic links
+static struct inode*
+create(char *path, short type, short major, short minor);
+uint sys_symlink(void)
+{
+    //symlink(target, path)
+    //把new链接到old，即在path处创建一个新的指向target的符号链接
+    char target[MAXPATH], path[MAXPATH];
+    int n;
+
+    if((n = argstr(0, target, MAXPATH)) < 0 || argstr(1, path, MAXPATH) < 0)
+        return -1;
+    begin_op();
+    struct inode *ip = create(path, T_SYMLINK, 0, 0);
+    if(ip == 0)
+    {
+        end_op();
+        return -1;
+    }
+
+    if(writei(ip, 0, (uint64)target, 0, n) != n)
+    {
+        iunlockput(ip);
+        end_op();
+        return -1;
+    }
+    iunlockput(ip);
+    end_op();
+    return 0;
+}
+
 // Is the directory dp empty except for "." and ".." ?
 static int
 isdirempty(struct inode *dp)
@@ -283,6 +314,41 @@ create(char *path, short type, short major, short minor)
   return ip;
 }
 
+//Lab9:2  Symbolic links
+static struct inode* follow_symlink(struct inode* ip)
+{
+    uint inodenums[10];
+    for(int i = 0; i < 10; i++)
+    {
+        inodenums[i] = ip->inum;
+        char symlink_target[MAXPATH];
+        if(readi(ip, 0, (uint64)symlink_target, 0, MAXPATH) <= 0)
+        {
+            iunlockput(ip);
+            return 0;
+        }
+        iunlockput(ip);
+        if((ip = namei(symlink_target)) == 0)
+        {
+            return 0;
+        }
+        for(int j = 0; j <= i; j++)
+        {
+            if(ip->inum == inodenums[i])
+            {
+                return 0;
+            }
+        }
+        ilock(ip);
+        if(ip->type != T_SYMLINK)
+        {
+            return ip;
+        }
+    }
+    iunlockput(ip);
+    return 0;
+}
+
 uint64
 sys_open(void)
 {
@@ -320,6 +386,17 @@ sys_open(void)
     iunlockput(ip);
     end_op();
     return -1;
+  }
+
+  //Lab9:2  Symbolic links
+  if(ip->type == T_SYMLINK && (omode & O_NOFOLLOW) == 0)
+  {
+        ip = follow_symlink(ip);
+        if(ip == 0)
+        {
+            end_op();
+            return -1;
+        }
   }
 
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
