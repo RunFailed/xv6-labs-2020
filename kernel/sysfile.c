@@ -3,7 +3,8 @@
 // Mostly argument checking, since we don't trust
 // user code, and calls into file.c and fs.c.
 //
-
+//Lab10
+//#define LAB_MMAP
 #include "types.h"
 #include "riscv.h"
 #include "defs.h"
@@ -15,6 +16,9 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#ifdef LAB_MMAP
+#include "memlayout.h"
+#endif
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -483,4 +487,86 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+//Lab10
+uint64 sys_mmap(void)
+{
+    uint64 addr;
+    int length, prot, flags, fd, offset;
+    struct file* f;
+    if(argaddr(0, &addr) < 0 || addr < 0) return -1;
+    if(argint(1, &length) < 0 || length < 0) return -1;
+    //这里的8是因为 PROT_NONE 、 PROT_READ 、 PROT_WRITE 、 PROT_EXEC 四位的组合最大值为7
+    if(argint(2, &prot) < 0 || prot < 0 || prot >= 8) return -1;
+    if(argint(3, &flags) < 0 || (flags != MAP_SHARED && flags != MAP_PRIVATE)) return -1;
+    if(argfd(4, &fd, &f) < 0) return -1;
+    if(argint(5, &offset) < 0 || offset < 0 || offset % PGSIZE) return -1;
+    if(addr != 0 || offset != 0) return -1;
+    if(flags == MAP_SHARED && f->writable == 0 && (prot & PROT_WRITE) != 0) return -1;
+    struct proc* p = myproc();
+    if(p->sz + length > KERNBASE) return -1;
+    int idx;
+    for(idx = 0; idx < MAXVMANUM; idx++)
+    {
+        if(p->vma_arr[idx].fptr == 0) break;
+    }
+    if(idx >= MAXVMANUM) return -1;
+    addr = p->sz;
+    p->vma_arr[idx].addr = addr;
+    p->vma_arr[idx].length = length;
+    p->vma_arr[idx].prot = prot;
+    p->vma_arr[idx].flags = flags;
+    p->vma_arr[idx].offset = 0;
+    p->vma_arr[idx].fptr = f;
+    //为映射文件分配一段未使用的区域
+    filedup(f);
+    p->sz += (PGROUNDUP(length));
+    return addr;
+}
+//Lab10
+uint64 sys_munmap(void)
+{
+    uint64 addr;
+    int length;
+    if(argaddr(0, &addr) < 0 || addr < 0 || addr >= KERNBASE) return -1;
+    if(argint(1, &length) < 0 || length < 0) return -1;
+    struct proc* p = myproc();
+    int idx;
+    for(idx = 0; idx < MAXVMANUM; idx++)
+    {
+        if(p->vma_arr[idx].fptr != 0 && p->vma_arr[idx].length >= length)
+        {
+            if(p->vma_arr[idx].addr == addr)
+            {
+                p->vma_arr[idx].addr += length;
+                p->vma_arr[idx].length -= length;
+                break;
+            }
+            if(addr + length == p->vma_arr[idx].addr + p->vma_arr[idx].length)
+            {
+                p->vma_arr[idx].length -= length;
+                break;
+            }
+        }
+    }
+    if(idx >= MAXVMANUM)
+        return -1;
+    if((p->vma_arr[idx].flags == MAP_SHARED) && (p->vma_arr[idx].prot & PROT_WRITE) != 0)
+    {
+        filewrite(p->vma_arr[idx].fptr, addr, length);
+    }
+    uvmunmap(p->pagetable, addr, length / PGSIZE, 1);
+    if(p->vma_arr[idx].length <= 0)
+    {
+        fileclose(p->vma_arr[idx].fptr);
+        p->vma_arr[idx].fptr = 0;
+        p->vma_arr[idx].length = 0;
+        p->vma_arr[idx].addr = 0;
+        p->vma_arr[idx].offset = 0;
+        p->vma_arr[idx].prot = 0;
+        p->vma_arr[idx].flags = 0;
+        p->vma_arr[idx].fd = 0;
+    }
+    return 0;
 }

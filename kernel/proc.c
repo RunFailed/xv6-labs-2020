@@ -5,6 +5,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#ifdef LAB_MMAP
+#include "fcntl.h"
+#endif
 
 struct cpu cpus[NCPU];
 
@@ -133,6 +136,9 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+
+  //Lab10
+    memset(&p->vma_arr, 0, sizeof(p->vma_arr));
 
   return p;
 }
@@ -296,6 +302,20 @@ fork(void)
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 
+    //Lab10
+    for(int idx = 0; idx < MAXVMANUM; idx++)
+    {
+        if(p->vma_arr[idx].fptr == 0) continue;
+        np->vma_arr[idx].fptr = p->vma_arr[idx].fptr;
+        np->vma_arr[idx].length = p->vma_arr[idx].length;
+        np->vma_arr[idx].addr = p->vma_arr[idx].addr;
+        np->vma_arr[idx].fd = p->vma_arr[idx].fd;
+        np->vma_arr[idx].prot = p->vma_arr[idx].prot;
+        np->vma_arr[idx].flags = p->vma_arr[idx].flags;
+        np->vma_arr[idx].offset = p->vma_arr[idx].offset;
+        filedup(np->vma_arr[idx].fptr);
+    }
+
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
@@ -352,6 +372,25 @@ exit(int status)
       p->ofile[fd] = 0;
     }
   }
+
+    //Lab10
+    for(int idx = 0; idx < MAXVMANUM; idx++)
+    {
+        if(p->vma_arr[idx].fptr == 0) continue;
+        if((p->vma_arr[idx].flags == MAP_SHARED) && (p->vma_arr[idx].prot & PROT_WRITE) != 0)
+        {
+            filewrite(p->vma_arr[idx].fptr, p->vma_arr[idx].addr, p->vma_arr[idx].length);
+        }
+        fileclose(p->vma_arr[idx].fptr);
+        uvmunmap(p->pagetable, p->vma_arr[idx].addr, p->vma_arr[idx].length / PGSIZE, 1);
+        p->vma_arr[idx].fptr = 0;
+        p->vma_arr[idx].length = 0;
+        p->vma_arr[idx].addr = 0;
+        p->vma_arr[idx].offset = 0;
+        p->vma_arr[idx].prot = 0;
+        p->vma_arr[idx].flags = 0;
+        p->vma_arr[idx].fd = 0;
+    }
 
   begin_op();
   iput(p->cwd);

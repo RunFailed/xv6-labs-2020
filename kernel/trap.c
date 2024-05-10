@@ -6,6 +6,13 @@
 #include "proc.h"
 #include "defs.h"
 
+#ifdef LAB_MMAP
+#include "fs.h"
+#include "sleeplock.h"
+#include "file.h"
+#include "fcntl.h"
+#endif
+
 struct spinlock tickslock;
 uint ticks;
 
@@ -65,9 +72,75 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  }
+  else if(r_scause() == 13 || r_scause() == 15)     //13是读page fault，15是写page fault     r_scause() == 12 ||
+  {
+      //先找到是在哪个VMA区域内出错
+      uint64 va = r_stval();    //出错的虚拟内存地址
+      int idx;
+      for(idx = 0; idx < MAXVMANUM; idx++)
+      {
+          if(p->vma_arr[idx].fptr == 0) continue;
+          if(va >= p->vma_arr[idx].addr + p->vma_arr[idx].offset && va < p->vma_arr[idx].addr + p->vma_arr[idx].offset + p->vma_arr[idx].length)
+          {
+              break;
+          }
+      }
+      if(idx >= MAXVMANUM) goto bad;
+      //检查出错原因与映射文件访问权限是否匹配
+      //如果是read page fault但是内存映射时未设置读权限
+      //或者是write page fault但是内存映射时未设置写权限
+      //则goto bad
+      //
+      if( (r_scause() == 13 &&  p->vma_arr[idx].fptr->readable == 0)
+            || (r_scause() == 15 && p->vma_arr[idx].fptr->writable == 0) )
+          goto bad;
+      //找一个空闲的物理页面
+      uint64 pa = (uint64)kalloc();
+      if(pa == 0)
+      {
+          //如果无空闲物理页面，则从已分配物理内存的内存映射区中找一个物理页面换出
+          for(int i = 0; i < MAXVMANUM; i++)
+          {
+              for(uint64 swapout_va = p->vma_arr[i].addr; swapout_va < p->vma_arr[i].addr + PGROUNDUP(p->vma_arr[i].length); swapout_va += PGSIZE)
+              {
+                  pte_t *pte = walk(p->pagetable, swapout_va, 0);
+                  //如果在内存映射区找到已分配的物理页面，则把该物理页面重新分配给现在出错的进程
+                  if(pte != 0 && (*pte & PTE_V) != 0 && (*pte & PTE_U) != 0)
+                  {
+                      pa = PTE2PA(*pte);
+                      *pte = 0;
+                  }
+              }
+          }
+      }
+      if(pa == 0) goto bad;     //未找到合适的换出页面
+      memset((void*)pa, 0, PGSIZE);
+      //把文件中的数据读入内存，并映射到用户地址空间
+      //va = PGROUNDDOWN(va);
+      ilock(p->vma_arr[idx].fptr->ip);
+      int ret = readi(p->vma_arr[idx].fptr->ip, 0, pa, PGROUNDDOWN(va - p->vma_arr[idx].addr) + p->vma_arr[idx].offset, PGSIZE);
+      if(ret == 0)
+      {
+          iunlock(p->vma_arr[idx].fptr->ip);
+          kfree((void*)pa);
+          goto bad;
+      }
+      iunlock(p->vma_arr[idx].fptr->ip);
+      int perm = PTE_U;
+      if(p->vma_arr[idx].prot & PROT_READ) perm |= PTE_R;
+      if(p->vma_arr[idx].prot & PROT_WRITE) perm |= PTE_W;
+      if(p->vma_arr[idx].prot & PROT_EXEC) perm |= PTE_X;
+      if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, pa, perm) != 0) //  | PTE_V
+      {
+          kfree((void*)pa);
+          goto bad;
+      }
+  }
+  else if((which_dev = devintr()) != 0){
     // ok
   } else {
+bad:
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;

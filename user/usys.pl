@@ -36,3 +36,5 @@ entry("getpid");
 entry("sbrk");
 entry("sleep");
 entry("uptime");
+entry("mmap");    #Lab10
+entry("munmap");    #Lab10
