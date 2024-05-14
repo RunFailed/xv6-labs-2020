@@ -102,6 +102,31 @@ e1000_transmit(struct mbuf *m)
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
   //
+
+    acquire(&e1000_lock);
+    //通过读取E1000_TDT控制寄存器，向E1000询问等待下一个数据包的TX环索引
+    int tx_tail_idx = regs[E1000_TDT];
+    struct tx_desc* tx_tail_pdesc = &tx_ring[tx_tail_idx];
+    //检查环是否溢出。如果E1000_TXD_STAT_DD未在E1000_TDT索引的描述符中设置，
+    //则E1000尚未完成先前相应的传输请求，因此返回错误。
+    if(tx_tail_pdesc == 0 || (tx_tail_pdesc->status & E1000_TXD_STAT_DD) == 0)    //
+    {
+        release(&e1000_lock);
+        return -1;
+    }
+    //使用mbuffree()释放从该描述符传输的最后一个mbuf（如果有）。
+    if(tx_mbufs[tx_tail_idx]) mbuffree(tx_mbufs[tx_tail_idx]);
+    //然后填写描述符。m->head指向内存中数据包的内容，m->len是数据包的长度。
+    // 设置必要的cmd标志（请参阅E1000手册的第3.3节），并保存指向mbuf的指针，以便稍后释放。
+    tx_tail_pdesc->addr = (uint64 )m->head;
+    tx_tail_pdesc->length = m->len;
+    tx_tail_pdesc->cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
+    tx_mbufs[tx_tail_idx] = m;
+
+    __sync_synchronize();
+    //最后，通过将一加到E1000_TDT再对TX_RING_SIZE取模来更新环位置。
+    regs[E1000_TDT] = (tx_tail_idx + 1) % TX_RING_SIZE;
+    release(&e1000_lock);
   
   return 0;
 }
@@ -115,6 +140,29 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
   //
+    //首先通过提取E1000_RDT控制寄存器并加一对RX_RING_SIZE取模，
+    // 向E1000询问下一个等待接收数据包（如果有）所在的环索引。
+    int rx_tail_idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+    struct rx_desc* rx_tail_pdesc = &rx_ring[rx_tail_idx];
+    //然后通过检查描述符status部分中的E1000_RXD_STAT_DD位
+    // 来检查新数据包是否可用。如果不可用，请停止。
+    while(rx_tail_pdesc->status & E1000_RXD_STAT_DD)
+    {
+        if(rx_tail_pdesc->length > MBUF_SIZE) panic("e1000 OOL");
+        //否则，将mbuf的m->len更新为描述符中报告的长度。使用net_rx()将mbuf传送到网络栈。
+        rx_mbufs[rx_tail_idx]->len = rx_tail_pdesc->length;
+        net_rx(rx_mbufs[rx_tail_idx]);
+        //然后使用mbufalloc()分配一个新的mbuf，以替换刚刚给net_rx()的mbuf。
+        // 将其数据指针（m->head）编程到描述符中。将描述符的状态位清除为零。
+        rx_mbufs[rx_tail_idx] = mbufalloc(0);
+        if(rx_mbufs[rx_tail_idx] == 0) panic("e1000 OOM");
+        rx_tail_pdesc->addr = (uint64)rx_mbufs[rx_tail_idx]->head;
+        rx_tail_pdesc->status = 0;
+        rx_tail_idx = (rx_tail_idx + 1) % RX_RING_SIZE;
+        rx_tail_pdesc = &rx_ring[rx_tail_idx];
+    }
+    //最后，将E1000_RDT寄存器更新为最后处理的环描述符的索引。
+    regs[E1000_RDT] = (rx_tail_idx - 1) % RX_RING_SIZE;
 }
 
 void
